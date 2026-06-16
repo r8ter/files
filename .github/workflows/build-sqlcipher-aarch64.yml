@@ -1,0 +1,83 @@
+name: Build static sqlcipher for aarch64
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install cross-compilation toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc-aarch64-linux-gnu \
+            binutils-aarch64-linux-gnu \
+            libc6-dev-arm64-cross \
+            make \
+            git \
+            wget \
+            tar \
+            gzip
+
+      - name: Build OpenSSL static for aarch64
+        run: |
+          set -e
+          cd /tmp
+          git clone --depth 1 -b openssl-3.0.15 https://github.com/openssl/openssl.git
+          cd openssl
+          ./Configure linux-aarch64 \
+            --cross-compile-prefix=aarch64-linux-gnu- \
+            --prefix=/opt/openssl-aarch64 \
+            --libdir=lib \
+            no-shared \
+            no-tests \
+            no-dso
+          make -j$(nproc)
+          make install_sw
+
+      - name: Build sqlcipher static for aarch64
+        run: |
+          set -e
+          cd /tmp
+          git clone --depth 1 https://github.com/sqlcipher/sqlcipher.git
+          cd sqlcipher
+          export CC=aarch64-linux-gnu-gcc
+          export AR=aarch64-linux-gnu-ar
+          export RANLIB=aarch64-linux-gnu-ranlib
+          export CFLAGS="-DSQLITE_HAS_CODEC -I/opt/openssl-aarch64/include"
+          export LDFLAGS="-L/opt/openssl-aarch64/lib -static"
+          ./configure \
+            --host=aarch64-linux-gnu \
+            --enable-static \
+            --disable-shared \
+            --enable-tempstore=yes \
+            --disable-readline \
+            --disable-editline \
+            --disable-load-extension
+          make -j$(nproc) LIBS="-lcrypto"
+
+      - name: Verify static aarch64 binary
+        run: |
+          echo "=== File type ==="
+          file /tmp/sqlcipher/sqlcipher
+          echo ""
+          echo "=== Dynamic dependencies (should be empty) ==="
+          aarch64-linux-gnu-readelf -d /tmp/sqlcipher/sqlcipher || echo "(none - fully static)"
+          echo ""
+          echo "=== Binary info ==="
+          ls -lh /tmp/sqlcipher/sqlcipher
+
+      - name: Strip debug symbols
+        run: |
+          aarch64-linux-gnu-strip /tmp/sqlcipher/sqlcipher
+          echo "Stripped size:"
+          ls -lh /tmp/sqlcipher/sqlcipher
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sqlcipher-aarch64-static
+          path: /tmp/sqlcipher/sqlcipher
+          compression-level: 0
