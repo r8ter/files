@@ -44,7 +44,13 @@ jobs:
           
           export CROSS_COMPILE=aarch64-linux-gnu-
           
-          # 修正点：移除 --enable-tempstore，通过 CFLAGS 注入 -DSQLITE_TEMP_STORE=2
+          # 修正点 1：既然它编译时包含当前目录 (-I.)，我们直接把自定义的 openssl 头文件目录软链接到当前目录下
+          ln -s $(pwd)/../openssl_assets/include/openssl ./openssl
+
+          # 修正点 2：同时利用 C_INCLUDE_PATH 环境变量，强制交叉编译器优先去这里找头文件
+          export C_INCLUDE_PATH=$(pwd)/../openssl_assets/include:$C_INCLUDE_PATH
+          export CPATH=$(pwd)/../openssl_assets/include:$CPATH
+          
           ./configure \
             --host=aarch64-linux-gnu \
             CFLAGS="-DSQLITE_HAS_CODEC -DSQLITE_TEMP_STORE=2 -DSQLITE_EXTRA_INIT=sqlcipher_extra_init -DSQLITE_EXTRA_SHUTDOWN=sqlcipher_extra_shutdown -O2" \
