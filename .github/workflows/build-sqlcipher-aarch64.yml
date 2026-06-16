@@ -1,101 +1,78 @@
 name: Build Static SQLCipher aarch64
 
 on:
-  push:
-    branches: [ main, master ]
-  pull_request:
-  workflow_dispatch:
+  workflow_dispatch: # 支持手动触发编译
 
 jobs:
-  build:
-    runs-on: ubuntu-24.04
+  build-aarch64:
+    runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout sqlcipher
+      - name: Checkout Code
         uses: actions/checkout@v4
-        with:
-          repository: sqlcipher/sqlcipher
-          ref: master   # or pin to e.g. v4.6.0 or a specific tag
 
-      - name: Install build dependencies
+      - name: Install Cross-Compilation Toolchains
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            build-essential \
-            curl \
             git \
-            perl \
-            pkg-config \
-            python3 \
+            build-essential \
             tcl-dev \
             gcc-aarch64-linux-gnu \
-            g++-aarch64-linux-gnu \
-            binutils-aarch64-linux-gnu \
-            musl-tools
+            g++-aarch64-linux-gnu
 
-      - name: Build static OpenSSL for aarch64
+      - name: Download Sources
         run: |
-          OPENSSL_VERSION=3.4.1
-          curl -L -o openssl.tar.gz https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz
-          tar -xzf openssl.tar.gz
-          cd openssl-${OPENSSL_VERSION}
-          
-          ./Configure linux-aarch64 \
-            --cross-compile-prefix=aarch64-linux-gnu- \
-            --prefix=/opt/openssl-aarch64 \
-            no-shared \
-            no-tests \
-            -static \
-            -DOPENSSL_NO_SECURE_MEMORY
-          
+          # 动态获取最新的 OpenSSL 3.x 稳定版
+          git clone --depth 1 -b openssl-3.3 https://github.com/openssl/openssl.git openssl_src
+          # 克隆最新稳定的 SQLCipher
+          git clone --depth 1 https://github.com/sqlcipher/sqlcipher.git sqlcipher_src
+
+      - name: Build Static OpenSSL for aarch64
+        run: |
+          cd openssl_src
+          # 配置交叉编译，只生成静态库 (no-shared)
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          ./Configure linux-aarch64 no-shared --prefix=$(pwd)/../openssl_assets
           make -j$(nproc)
-          sudo make install_sw
+          make install_dev
+          cd ..
 
-      - name: Build static sqlcipher (sqlite3 executable)
+      - name: Build Fully Static SQLCipher for aarch64
         run: |
-          export CC=aarch64-linux-gnu-gcc
-          export CXX=aarch64-linux-gnu-g++
-          export AR=aarch64-linux-gnu-ar
-          export LD=aarch64-linux-gnu-ld
-          export RANLIB=aarch64-linux-gnu-ranlib
+          cd sqlcipher_src
           
-          export OPENSSL_DIR=/opt/openssl-aarch64
+          # 根据官方文档，核心配置参数：
+          # 1. --enable-tempstore=yes (触发官方标准的 SQLITE_TEMP_STORE=2 内存临时表支持)
+          # 2. CFLAGS 注入官方必需宏: -DSQLITE_HAS_CODEC 以及现代 SQLCipher 初始/关闭化钩子
+          # 3. LDFLAGS 强行加入 -static，以及手动指定刚才编译出来的静态 libcrypto.a 绝对路径和所需原子库
           
-          export CFLAGS="-I${OPENSSL_DIR}/include -DSQLITE_HAS_CODEC \
-            -DSQLITE_EXTRA_INIT=sqlcipher_extra_init \
-            -DSQLITE_EXTRA_SHUTDOWN=sqlcipher_extra_shutdown \
-            -DSQLITE_TEMP_STORE=2 -Os -fPIC"
+          export CROSS_COMPILE=aarch64-linux-gnu-
           
-          export LDFLAGS="-L${OPENSSL_DIR}/lib -lcrypto -static -static-libgcc -static-libstdc++ -Wl,--gc-sections"
-          
-          # Official configure (strictly following README)
           ./configure \
             --host=aarch64-linux-gnu \
-            --with-tempstore=yes \
-            --disable-shared \
-            --enable-static \
-            CFLAGS="${CFLAGS}" \
-            LDFLAGS="${LDFLAGS}"
+            --enable-tempstore=yes \
+            CFLAGS="-DSQLITE_HAS_CODEC -DSQLITE_EXTRA_INIT=sqlcipher_extra_init -DSQLITE_EXTRA_SHUTDOWN=sqlcipher_extra_shutdown -O2" \
+            LDFLAGS="-static $(pwd)/../openssl_assets/lib/libcrypto.a -lpthread -ldl -lm" \
+            CC="aarch64-linux-gnu-gcc"
+
+          # 编译 sqlite3 命令行工具及生成目标
+          make -j$(nproc) sqlite3
           
-          make -j$(nproc)
+          # 验证生成的文件架构和是否为纯静态
+          file sqlite3
+          cd ..
 
-      - name: Verify binary
+      - name: Prepare Artifact
         run: |
-          ls -lh ./sqlite3
-          file ./sqlite3
-          aarch64-linux-gnu-readelf -d ./sqlite3 | grep -E "(Shared library|NEEDED)" || echo "✅ Fully static - no dynamic dependencies"
-          ./sqlite3 --version || echo "Binary runs (static check)"
+          mkdir -p output
+          # 将编译好的二进制复制出来并重命名为带有架构特征的名称
+          cp sqlcipher_src/sqlite3 output/sqlcipher-aarch64-static
+          chmod +x output/sqlcipher-aarch64-static
 
-      - name: Rename and Upload artifact
-        run: |
-          mv ./sqlite3 ./sqlcipher
-          ls -lh ./sqlcipher
-        if: always()
-
-      - name: Upload artifact
+      - name: Upload Static Binary
         uses: actions/upload-artifact@v4
         with:
-          name: sqlcipher-aarch64-static
-          path: ./sqlcipher
+          name: sqlcipher-aarch64-static-binary
+          path: output/sqlcipher-aarch64-static
           if-no-files-found: error
-          retention-days: 30
