@@ -44,11 +44,10 @@ jobs:
           
           export CROSS_COMPILE=aarch64-linux-gnu-
           
-          # 修正点：将 --enable-tempstore=yes 改为 --enable-tempstore=2
+          # 修正点：移除 --enable-tempstore，通过 CFLAGS 注入 -DSQLITE_TEMP_STORE=2
           ./configure \
             --host=aarch64-linux-gnu \
-            --enable-tempstore=2 \
-            CFLAGS="-DSQLITE_HAS_CODEC -DSQLITE_EXTRA_INIT=sqlcipher_extra_init -DSQLITE_EXTRA_SHUTDOWN=sqlcipher_extra_shutdown -O2" \
+            CFLAGS="-DSQLITE_HAS_CODEC -DSQLITE_TEMP_STORE=2 -DSQLITE_EXTRA_INIT=sqlcipher_extra_init -DSQLITE_EXTRA_SHUTDOWN=sqlcipher_extra_shutdown -O2" \
             LDFLAGS="-static $(pwd)/../openssl_assets/lib/libcrypto.a -lpthread -ldl -lm" \
             CC="aarch64-linux-gnu-gcc"
 
