@@ -42,24 +42,20 @@ jobs:
         run: |
           cd sqlcipher_src
           
-          # 根据官方文档，核心配置参数：
-          # 1. --enable-tempstore=yes (触发官方标准的 SQLITE_TEMP_STORE=2 内存临时表支持)
-          # 2. CFLAGS 注入官方必需宏: -DSQLITE_HAS_CODEC 以及现代 SQLCipher 初始/关闭化钩子
-          # 3. LDFLAGS 强行加入 -static，以及手动指定刚才编译出来的静态 libcrypto.a 绝对路径和所需原子库
-          
           export CROSS_COMPILE=aarch64-linux-gnu-
           
+          # 修正点：将 --enable-tempstore=yes 改为 --enable-tempstore=2
           ./configure \
             --host=aarch64-linux-gnu \
-            --enable-tempstore=yes \
+            --enable-tempstore=2 \
             CFLAGS="-DSQLITE_HAS_CODEC -DSQLITE_EXTRA_INIT=sqlcipher_extra_init -DSQLITE_EXTRA_SHUTDOWN=sqlcipher_extra_shutdown -O2" \
             LDFLAGS="-static $(pwd)/../openssl_assets/lib/libcrypto.a -lpthread -ldl -lm" \
             CC="aarch64-linux-gnu-gcc"
 
-          # 编译 sqlite3 命令行工具及生成目标
+          # 编译 sqlite3 命令行工具
           make -j$(nproc) sqlite3
           
-          # 验证生成的文件架构和是否为纯静态
+          # 验证生成的文件架构
           file sqlite3
           cd ..
 
