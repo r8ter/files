@@ -46,7 +46,7 @@ jobs:
           export CC=aarch64-linux-gnu-gcc
           export AR=aarch64-linux-gnu-ar
           export RANLIB=aarch64-linux-gnu-ranlib
-          export CFLAGS="-DSQLITE_HAS_CODEC -DSQLITE_TEMP_STORE=3 -I/opt/openssl-aarch64/include"
+          export CFLAGS="-DSQLITE_HAS_CODEC -DSQLITE_TEMP_STORE=3 -DSQLITE_EXTRA_INIT=sqlcipher_extra_init -DSQLITE_EXTRA_SHUTDOWN=sqlcipher_extra_shutdown -I/opt/openssl-aarch64/include"
           export LDFLAGS="-L/opt/openssl-aarch64/lib -static"
           ./configure \
             --host=aarch64-linux-gnu \
