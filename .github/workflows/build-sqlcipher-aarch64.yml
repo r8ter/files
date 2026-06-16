@@ -46,13 +46,12 @@ jobs:
           export CC=aarch64-linux-gnu-gcc
           export AR=aarch64-linux-gnu-ar
           export RANLIB=aarch64-linux-gnu-ranlib
-          export CFLAGS="-DSQLITE_HAS_CODEC -I/opt/openssl-aarch64/include"
+          export CFLAGS="-DSQLITE_HAS_CODEC -DSQLITE_TEMP_STORE=3 -I/opt/openssl-aarch64/include"
           export LDFLAGS="-L/opt/openssl-aarch64/lib -static"
           ./configure \
             --host=aarch64-linux-gnu \
             --enable-static \
             --disable-shared \
-            --enable-tempstore=yes \
             --disable-readline \
             --disable-editline \
             --disable-load-extension
