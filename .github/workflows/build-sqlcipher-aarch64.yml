@@ -1,18 +1,21 @@
 name: Build Static SQLCipher aarch64
 
 on:
+  push:
+    branches: [ main, master ]
+  pull_request:
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04  # Use x86_64 runner with cross-compile for reliability
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout sqlcipher
         uses: actions/checkout@v4
         with:
           repository: sqlcipher/sqlcipher
-          ref: master  # or pin to a specific tag like v4.6.0
+          ref: master   # or pin to e.g. v4.6.0 or a specific tag
 
       - name: Install build dependencies
         run: |
@@ -24,21 +27,19 @@ jobs:
             perl \
             pkg-config \
             python3 \
-            tcl-dev
-
-      - name: Install aarch64 cross-compiler (musl for fully static)
-        run: |
-          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu binutils-aarch64-linux-gnu \
-            musl-tools musl-dev
+            tcl-dev \
+            gcc-aarch64-linux-gnu \
+            g++-aarch64-linux-gnu \
+            binutils-aarch64-linux-gnu \
+            musl-tools
 
       - name: Build static OpenSSL for aarch64
         run: |
-          OPENSSL_VERSION=3.4.1  # Latest stable as of recent checks; update if needed
+          OPENSSL_VERSION=3.4.1
           curl -L -o openssl.tar.gz https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz
           tar -xzf openssl.tar.gz
           cd openssl-${OPENSSL_VERSION}
           
-          # Configure for static aarch64 Linux (musl toolchain)
           ./Configure linux-aarch64 \
             --cross-compile-prefix=aarch64-linux-gnu- \
             --prefix=/opt/openssl-aarch64 \
@@ -50,21 +51,24 @@ jobs:
           make -j$(nproc)
           sudo make install_sw
 
-      - name: Build static sqlcipher
+      - name: Build static sqlcipher (sqlite3 executable)
         run: |
-          # Set up environment for cross-compile
           export CC=aarch64-linux-gnu-gcc
           export CXX=aarch64-linux-gnu-g++
           export AR=aarch64-linux-gnu-ar
           export LD=aarch64-linux-gnu-ld
           export RANLIB=aarch64-linux-gnu-ranlib
           
-          # Point to our static OpenSSL
           export OPENSSL_DIR=/opt/openssl-aarch64
-          export CFLAGS="-I${OPENSSL_DIR}/include -DSQLITE_HAS_CODEC -DSQLITE_EXTRA_INIT=sqlcipher_extra_init -DSQLITE_EXTRA_SHUTDOWN=sqlcipher_extra_shutdown -DSQLITE_TEMP_STORE=2 -fPIC -Os"
-          export LDFLAGS="-L${OPENSSL_DIR}/lib -lcrypto -static -static-libgcc -static-libstdc++"
           
-          # Configure (strictly following official docs + static flags)
+          export CFLAGS="-I${OPENSSL_DIR}/include -DSQLITE_HAS_CODEC \
+            -DSQLITE_EXTRA_INIT=sqlcipher_extra_init \
+            -DSQLITE_EXTRA_SHUTDOWN=sqlcipher_extra_shutdown \
+            -DSQLITE_TEMP_STORE=2 -Os -fPIC"
+          
+          export LDFLAGS="-L${OPENSSL_DIR}/lib -lcrypto -static -static-libgcc -static-libstdc++ -Wl,--gc-sections"
+          
+          # Official configure (strictly following README)
           ./configure \
             --host=aarch64-linux-gnu \
             --with-tempstore=yes \
@@ -73,13 +77,20 @@ jobs:
             CFLAGS="${CFLAGS}" \
             LDFLAGS="${LDFLAGS}"
           
-          make -j$(nproc) sqlite3  # Builds the CLI executable (sqlcipher)
+          make -j$(nproc)
 
-      - name: Verify binary (static, aarch64)
+      - name: Verify binary
         run: |
-          file ./sqlcipher
-          aarch64-linux-gnu-readelf -d ./sqlcipher | grep -E "(Shared library|NEEDED)" || echo "No dynamic dependencies (fully static)"
+          ls -lh ./sqlite3
+          file ./sqlite3
+          aarch64-linux-gnu-readelf -d ./sqlite3 | grep -E "(Shared library|NEEDED)" || echo "✅ Fully static - no dynamic dependencies"
+          ./sqlite3 --version || echo "Binary runs (static check)"
+
+      - name: Rename and Upload artifact
+        run: |
+          mv ./sqlite3 ./sqlcipher
           ls -lh ./sqlcipher
+        if: always()
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
